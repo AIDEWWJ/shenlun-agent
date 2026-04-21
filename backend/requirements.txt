@@ -6,3 +6,4 @@ pydantic-settings
 langchain
 langchain-openai
 python-dotenv
+httpx

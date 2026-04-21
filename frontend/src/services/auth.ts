@@ -16,8 +16,45 @@ export type LoginPayload = {
 
 export type RegisterPayload = {
   username: string
-  email?: string | null
   password: string
+  email: string
+}
+
+export type RegisterConfirmPayload = {
+  username: string
+  email: string
+  password: string
+  verification_code: string
+}
+
+export type RegisterCodePayload = {
+  username: string
+  email: string
+}
+
+export type ProfileUpdatePayload = {
+  username?: string | null
+  email?: string | null
+}
+
+export type PasswordChangePayload = {
+  current_password: string
+  new_password: string
+}
+
+export type PasswordResetPayload = {
+  username: string
+  email: string
+  new_password: string
+}
+
+export type PasswordResetConfirmPayload = PasswordResetPayload & {
+  verification_code: string
+}
+
+export type PasswordResetCodePayload = {
+  username: string
+  email: string
 }
 
 type TokenResponse = {
@@ -25,8 +62,15 @@ type TokenResponse = {
   token_type: string
 }
 
-export function registerUser(payload: RegisterPayload) {
-  return request<UserRead>('/auth/register', {
+export function sendRegisterVerificationCode(payload: RegisterCodePayload) {
+  return request<void>('/auth/register/send-code', {
+    method: 'POST',
+    body: payload,
+  })
+}
+
+export function registerUser(payload: RegisterConfirmPayload) {
+  return request<TokenResponse>('/auth/register', {
     method: 'POST',
     body: payload,
   })
@@ -42,5 +86,35 @@ export function loginUser(payload: LoginPayload) {
 export function fetchCurrentUser(token: string) {
   return request<UserRead>('/auth/me', {
     token,
+  })
+}
+
+export function updateCurrentUser(token: string, payload: ProfileUpdatePayload) {
+  return request<UserRead>('/auth/me', {
+    method: 'PUT',
+    token,
+    body: payload,
+  })
+}
+
+export function changeCurrentUserPassword(token: string, payload: PasswordChangePayload) {
+  return request<void>('/auth/me/password', {
+    method: 'POST',
+    token,
+    body: payload,
+  })
+}
+
+export function sendForgotPasswordVerificationCode(payload: PasswordResetCodePayload) {
+  return request<void>('/auth/forgot-password/send-code', {
+    method: 'POST',
+    body: payload,
+  })
+}
+
+export function resetForgottenPassword(payload: PasswordResetConfirmPayload) {
+  return request<void>('/auth/forgot-password', {
+    method: 'POST',
+    body: payload,
   })
 }

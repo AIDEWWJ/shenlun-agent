@@ -32,3 +32,10 @@ Desktop.ini
 
 # Logs
 *.log
+
+# Local project docs (keep locally, do not commit)
+/API_DESIGN.md
+/ARCHITECTURE.md
+/DIRECTORY_STRUCTURE.md
+/PROGRESS.md
+/PROJECT.md

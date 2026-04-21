@@ -11,7 +11,31 @@ type ValidationDetail = {
   msg?: string
 }
 
+type ApiEnvelope<T = unknown> = {
+  success?: boolean
+  message?: string
+  data?: T
+  error?: unknown
+}
+
+function isApiEnvelope<T = unknown>(payload: unknown): payload is ApiEnvelope<T> {
+  return Boolean(payload && typeof payload === 'object' && ('success' in payload || 'message' in payload || 'data' in payload))
+}
+
 function parseErrorDetail(payload: unknown, status: number): string {
+  if (isApiEnvelope(payload)) {
+    if (payload.message) {
+      return payload.message
+    }
+
+    if (payload.error && typeof payload.error === 'object' && 'message' in payload.error) {
+      const errorMessage = (payload.error as { message?: unknown }).message
+      if (typeof errorMessage === 'string') {
+        return errorMessage
+      }
+    }
+  }
+
   if (payload && typeof payload === 'object' && 'detail' in payload) {
     const detail = (payload as { detail: unknown }).detail
 
@@ -84,6 +108,16 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (!response.ok) {
     throw new ApiError(response.status, parseErrorDetail(payload, response.status))
+  }
+
+  if (isApiEnvelope<T>(payload)) {
+    if (payload.success === false) {
+      throw new ApiError(response.status, payload.message || '请求失败')
+    }
+
+    if ('data' in payload) {
+      return payload.data as T
+    }
   }
 
   return payload as T

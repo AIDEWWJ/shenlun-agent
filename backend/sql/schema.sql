@@ -19,6 +19,60 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统用户表';
 
 -- =========================
+-- 邮件配置表
+-- 用于保存管理员配置的 SMTP 发送参数
+-- =========================
+CREATE TABLE IF NOT EXISTS email_configs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
+    name VARCHAR(64) NOT NULL UNIQUE COMMENT '配置名称',
+    smtp_host VARCHAR(255) NOT NULL COMMENT 'SMTP 主机',
+    smtp_port INT NOT NULL DEFAULT 587 COMMENT 'SMTP 端口',
+    smtp_username VARCHAR(255) COMMENT 'SMTP 用户名',
+    smtp_password VARCHAR(255) COMMENT 'SMTP 密码',
+    sender_email VARCHAR(128) NOT NULL COMMENT '发件邮箱',
+    sender_name VARCHAR(128) COMMENT '发件名称',
+    use_tls BOOLEAN NOT NULL DEFAULT TRUE COMMENT '是否启用 TLS',
+    use_ssl BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否启用 SSL',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE COMMENT '是否启用',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='邮件配置表';
+
+-- =========================
+-- 邮件模板表
+-- 用于保存注册验证、找回密码等邮件模板
+-- =========================
+CREATE TABLE IF NOT EXISTS email_templates (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
+    template_key VARCHAR(64) NOT NULL UNIQUE COMMENT '模板键',
+    template_name VARCHAR(128) NOT NULL COMMENT '模板名称',
+    subject VARCHAR(255) NOT NULL COMMENT '邮件主题',
+    body_text TEXT NOT NULL COMMENT '纯文本模板',
+    body_html TEXT COMMENT 'HTML 模板',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE COMMENT '是否启用',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='邮件模板表';
+
+-- =========================
+-- 邮件验证码表
+-- 用于保存注册验证、找回密码验证码
+-- =========================
+CREATE TABLE IF NOT EXISTS email_verification_codes (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键 ID',
+    email VARCHAR(128) NOT NULL COMMENT '目标邮箱',
+    purpose VARCHAR(32) NOT NULL COMMENT '用途：register_verify / forgot_password_verify',
+    code_hash VARCHAR(255) NOT NULL COMMENT '验证码哈希',
+    context_json TEXT NOT NULL COMMENT '上下文 JSON',
+    expires_at DATETIME NOT NULL COMMENT '过期时间',
+    used_at DATETIME NULL COMMENT '使用时间',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    KEY idx_email_verification_email (email),
+    KEY idx_email_verification_purpose (purpose),
+    KEY idx_email_verification_expire (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='邮件验证码表';
+
+-- =========================
 -- 角色表
 -- 用于定义系统角色：访客、学员、管理员
 -- =========================
@@ -162,3 +216,23 @@ WHERE NOT EXISTS (SELECT 1 FROM roles WHERE name = 'learner');
 INSERT INTO roles (name, display_name, description)
 SELECT 'admin', '管理员', '系统维护用户'
 WHERE NOT EXISTS (SELECT 1 FROM roles WHERE name = 'admin');
+
+INSERT INTO email_templates (template_key, template_name, subject, body_text, body_html, enabled)
+SELECT
+    'register_verify',
+    '注册验证码',
+    '{app_name} 注册验证码',
+    '您好，{username}。\n\n你的注册验证码是：{code}\n有效期 {expires_minutes} 分钟。\n如果不是你本人操作，请忽略此邮件。',
+    '<p>您好，{username}。</p><p>你的注册验证码是：<strong>{code}</strong></p><p>有效期 {expires_minutes} 分钟。</p><p>如果不是你本人操作，请忽略此邮件。</p>',
+    TRUE
+WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE template_key = 'register_verify');
+
+INSERT INTO email_templates (template_key, template_name, subject, body_text, body_html, enabled)
+SELECT
+    'forgot_password_verify',
+    '找回密码验证码',
+    '{app_name} 找回密码验证码',
+    '您好，{username}。\n\n你的找回密码验证码是：{code}\n有效期 {expires_minutes} 分钟。\n如果不是你本人操作，请忽略此邮件。',
+    '<p>您好，{username}。</p><p>你的找回密码验证码是：<strong>{code}</strong></p><p>有效期 {expires_minutes} 分钟。</p><p>如果不是你本人操作，请忽略此邮件。</p>',
+    TRUE
+WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE template_key = 'forgot_password_verify');

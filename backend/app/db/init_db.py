@@ -4,6 +4,9 @@ from app.db.base import Base
 from app.models import (  # noqa: F401
     AiConfig,
     Answer,
+    EmailConfig,
+    EmailTemplate,
+    EmailVerificationCode,
     PracticeRecord,
     PromptTemplate,
     Question,
@@ -19,6 +22,25 @@ DEFAULT_ROLES = [
     {"name": "visitor", "display_name": "访客", "description": "只读浏览用户"},
     {"name": "learner", "display_name": "学员", "description": "核心训练用户"},
     {"name": "admin", "display_name": "管理员", "description": "系统维护用户"},
+]
+
+DEFAULT_EMAIL_TEMPLATES = [
+    {
+        "template_key": "register_verify",
+        "template_name": "注册验证码",
+        "subject": "{app_name} 注册验证码",
+        "body_text": "您好，{username}。\n\n你的注册验证码是：{code}\n有效期 {expires_minutes} 分钟。\n如果不是你本人操作，请忽略此邮件。",
+        "body_html": "<p>您好，{username}。</p><p>你的注册验证码是：<strong>{code}</strong></p><p>有效期 {expires_minutes} 分钟。</p><p>如果不是你本人操作，请忽略此邮件。</p>",
+        "enabled": True,
+    },
+    {
+        "template_key": "forgot_password_verify",
+        "template_name": "找回密码验证码",
+        "subject": "{app_name} 找回密码验证码",
+        "body_text": "您好，{username}。\n\n你的找回密码验证码是：{code}\n有效期 {expires_minutes} 分钟。\n如果不是你本人操作，请忽略此邮件。",
+        "body_html": "<p>您好，{username}。</p><p>你的找回密码验证码是：<strong>{code}</strong></p><p>有效期 {expires_minutes} 分钟。</p><p>如果不是你本人操作，请忽略此邮件。</p>",
+        "enabled": True,
+    },
 ]
 
 
@@ -37,6 +59,16 @@ def init_database() -> None:
                 changed = True
 
         if changed:
+            session.commit()
+
+        existing_templates = {template.template_key for template in session.scalars(select(EmailTemplate)).all()}
+        template_changed = False
+        for template_data in DEFAULT_EMAIL_TEMPLATES:
+            if template_data["template_key"] not in existing_templates:
+                session.add(EmailTemplate(**template_data))
+                template_changed = True
+
+        if template_changed:
             session.commit()
 
 

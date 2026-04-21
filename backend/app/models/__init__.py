@@ -1,5 +1,6 @@
 from app.models.answer import Answer
 from app.models.ai_config import AiConfig
+from app.models.email import EmailConfig, EmailTemplate, EmailVerificationCode
 from app.models.practice_record import PracticeRecord
 from app.models.prompt_template import PromptTemplate
 from app.models.question import Question

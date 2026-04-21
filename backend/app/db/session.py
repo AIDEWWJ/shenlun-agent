@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
 
-DATABASE_URL = (
+DATABASE_URL = settings.database_url or (
     f"mysql+pymysql://{settings.mysql_user}:{settings.mysql_password}"
     f"@{settings.mysql_host}:{settings.mysql_port}/{settings.mysql_database}?charset=utf8mb4"
 )

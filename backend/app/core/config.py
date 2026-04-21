@@ -18,10 +18,13 @@ class Settings(BaseSettings):
     mysql_user: str = "root"
     mysql_password: str = ""
     mysql_database: str = "shenlun_agent"
+    database_url: str | None = None
 
     default_model_provider: str = "openai"
     default_model_name: str = "gpt-4.1-mini"
     default_temperature: float = 0.3
+
+    email_code_expire_minutes: int = 10
 
     jwt_secret_key: str = "change-this-in-dev"
     jwt_algorithm: str = "HS256"

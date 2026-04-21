@@ -39,7 +39,13 @@ def get_current_user(
     except Exception as exc:
         raise credentials_exception from exc
 
-    user = db.scalars(select(User).where(User.username == username)).first()
+    user = None
+    try:
+        user_id = int(username)
+        user = db.get(User, user_id)
+    except (TypeError, ValueError):
+        user = db.scalars(select(User).where(User.username == username)).first()
+
     if user is None:
         raise credentials_exception
     return user

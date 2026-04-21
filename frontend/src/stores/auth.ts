@@ -1,6 +1,6 @@
 import { reactive, readonly } from 'vue'
 
-import { fetchCurrentUser, loginUser, registerUser, type LoginPayload, type RegisterPayload, type UserRead } from '../services/auth'
+import { fetchCurrentUser, loginUser, registerUser, sendRegisterVerificationCode, type LoginPayload, type RegisterConfirmPayload, type RegisterCodePayload, type UserRead } from '../services/auth'
 
 type AuthMode = 'login' | 'register'
 
@@ -12,6 +12,7 @@ type AuthState = {
   error: string
   notice: string
   mode: AuthMode
+  persistSession: boolean
 }
 
 const AUTH_STORAGE_KEY = 'shenlun-agent-access-token'
@@ -55,6 +56,7 @@ const state = reactive<AuthState>({
   error: '',
   notice: '',
   mode: 'login',
+  persistSession: true,
 })
 
 function clearSession() {
@@ -69,6 +71,15 @@ export function setAuthMode(mode: AuthMode) {
   state.mode = mode
   state.error = ''
   state.notice = ''
+}
+
+export function setPersistSession(persistSession: boolean) {
+  state.persistSession = persistSession
+  if (!persistSession) {
+    clearStoredToken()
+  } else if (state.token) {
+    saveStoredToken(state.token)
+  }
 }
 
 export async function bootstrapAuth() {
@@ -91,6 +102,21 @@ export async function bootstrapAuth() {
   }
 }
 
+export async function refreshCurrentUser() {
+  if (!state.token) {
+    return null
+  }
+
+  try {
+    state.user = await fetchCurrentUser(state.token)
+    return state.user
+  } catch (error) {
+    clearSession()
+    state.error = resolveMessage(error, '登录状态已失效，请重新登录')
+    throw error
+  }
+}
+
 export async function loginWithPassword(payload: LoginPayload) {
   state.busy = true
   state.error = ''
@@ -99,7 +125,11 @@ export async function loginWithPassword(payload: LoginPayload) {
   try {
     const token = await loginUser(payload)
     state.token = token.access_token
-    saveStoredToken(token.access_token)
+    if (state.persistSession) {
+      saveStoredToken(token.access_token)
+    } else {
+      clearStoredToken()
+    }
     state.user = await fetchCurrentUser(token.access_token)
     state.notice = '登录成功'
   } catch (error) {
@@ -112,20 +142,35 @@ export async function loginWithPassword(payload: LoginPayload) {
   }
 }
 
-export async function registerAndLogin(payload: RegisterPayload) {
+export async function requestRegisterCode(payload: RegisterCodePayload) {
   state.busy = true
   state.error = ''
   state.notice = ''
 
   try {
-    await registerUser(payload)
-    state.notice = '注册成功，正在为你自动登录'
-    const token = await loginUser({
-      username: payload.username,
-      password: payload.password,
-    })
+    await sendRegisterVerificationCode(payload)
+    state.notice = '验证码已发送，请查收邮箱'
+  } catch (error) {
+    state.error = resolveMessage(error, '发送验证码失败，请稍后重试')
+    throw error
+  } finally {
+    state.busy = false
+  }
+}
+
+export async function registerAndLogin(payload: RegisterConfirmPayload) {
+  state.busy = true
+  state.error = ''
+  state.notice = ''
+
+  try {
+    const token = await registerUser(payload)
     state.token = token.access_token
-    saveStoredToken(token.access_token)
+    if (state.persistSession) {
+      saveStoredToken(token.access_token)
+    } else {
+      clearStoredToken()
+    }
     state.user = await fetchCurrentUser(token.access_token)
     state.notice = '注册成功，已自动登录'
   } catch (error) {

@@ -36,6 +36,14 @@ Desktop.ini
 # Local project docs (keep locally, do not commit)
 /API_DESIGN.md
 /ARCHITECTURE.md
+/DATA_MODEL.md
+/DB_INDEX_OPTIMIZATION.md
+/DB_SCHEMA.md
+/DB_SCHEMA_DOC.md
 /DIRECTORY_STRUCTURE.md
+/MVP_PLAN.md
 /PROGRESS.md
 /PROJECT.md
+/ROLE_DESIGN.md
+/ROLE_MATRIX.md
+/docs/FRONTEND_VISUAL_STYLE_GUIDE.md

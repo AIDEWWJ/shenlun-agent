@@ -153,20 +153,4 @@
 
 前端默认请求地址为 http://127.0.0.1:8000/api，可通过环境变量覆盖。
 
-## 文档导航
-
-- [项目文档](PROJECT.md)
-- [技术架构](ARCHITECTURE.md)
-- [前端视觉风格规范](docs/FRONTEND_VISUAL_STYLE_GUIDE.md)
-- [目录结构](DIRECTORY_STRUCTURE.md)
-- [MVP 开发计划](MVP_PLAN.md)
-- [接口设计](API_DESIGN.md)
-- [数据模型](DATA_MODEL.md)
-- [数据库表设计](DB_SCHEMA.md)
-- [建表说明文档](DB_SCHEMA_DOC.md)
-- [索引优化版](DB_INDEX_OPTIMIZATION.md)
-- [角色设计](ROLE_DESIGN.md)
-- [权限矩阵](ROLE_MATRIX.md)
-- [数据库初始化说明](DB_SCHEMA.md#部署初始化方式)
-- [进度追踪](PROGRESS.md)
 

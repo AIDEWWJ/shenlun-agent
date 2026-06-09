@@ -23,10 +23,18 @@ def _validation_details(exc: RequestValidationError) -> list[dict[str, Any]]:
 
 
 def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    if isinstance(exc.detail, dict):
+        message = str(exc.detail.get("message", "请求处理失败"))
+        code = str(exc.detail.get("code", exc.status_code))
+        details = exc.detail.get("details")
+    else:
+        message = str(exc.detail)
+        code = str(exc.status_code)
+        details = None
     payload = api_error(
-        message=str(exc.detail),
-        code=str(exc.status_code),
-        details=None,
+        message=message,
+        code=code,
+        details=details,
     )
     return JSONResponse(status_code=exc.status_code, content=payload)
 

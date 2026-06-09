@@ -1,21 +1,25 @@
 import os
 import unittest
 import uuid
+from unittest.mock import patch
 
 
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import main as backend_main
-from app.api.deps import get_db
+from app.shared.deps import get_db
 from app.core.security import get_password_hash
 from app.db.base import Base
-from app.models import EmailConfig, EmailTemplate, EmailVerificationCode, Role, User, UserRole
-import app.services.email_service as email_service
+from app.modules.auth.models import Role, User, UserRole
+from app.modules.email.models import EmailConfig, EmailTemplate, EmailVerificationCode
+import app.modules.email.service as email_service
+import app.modules.question.service as question_service
 
 
 class AuthApiTestCase(unittest.TestCase):
@@ -399,7 +403,6 @@ class AuthApiTestCase(unittest.TestCase):
                 "api_key": "sk-test-123",
                 "base_url": "https://api.openai.com/v1",
                 "temperature": 0.2,
-                "system_prompt": "你是申论助手",
                 "is_default": True,
             },
         )
@@ -409,21 +412,23 @@ class AuthApiTestCase(unittest.TestCase):
         config_id = create_data["data"]["id"]
         self.assertTrue(create_data["data"]["is_default"])
 
-        list_resp = self.client.get("/api/ai-configs/me", headers=headers)
+        list_resp = self.client.get("/api/ai-configs/me?page=1&page_size=10", headers=headers)
         self.assertEqual(list_resp.status_code, 200)
         list_data = list_resp.json()
         self.assertTrue(list_data["success"])
-        self.assertEqual(len(list_data["data"]), 1)
+        self.assertEqual(list_data["data"]["total"], 1)
+        self.assertEqual(list_data["data"]["page"], 1)
+        self.assertEqual(list_data["data"]["page_size"], 10)
+        self.assertEqual(len(list_data["data"]["items"]), 1)
 
         update_resp = self.client.put(
             f"/api/ai-configs/me/{config_id}",
             headers=headers,
-            json={"temperature": 0.8, "system_prompt": "更新后的提示词"},
+            json={"temperature": 0.8},
         )
         self.assertEqual(update_resp.status_code, 200)
         update_data = update_resp.json()
         self.assertAlmostEqual(update_data["data"]["temperature"], 0.8)
-        self.assertEqual(update_data["data"]["system_prompt"], "更新后的提示词")
 
         default_resp = self.client.post(f"/api/ai-configs/me/{config_id}/default", headers=headers)
         self.assertEqual(default_resp.status_code, 200)
@@ -433,8 +438,9 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(delete_resp.status_code, 200)
         self.assertTrue(delete_resp.json()["success"])
 
-        list_after_delete = self.client.get("/api/ai-configs/me", headers=headers)
-        self.assertEqual(list_after_delete.json()["data"], [])
+        list_after_delete = self.client.get("/api/ai-configs/me?page=1&page_size=10", headers=headers)
+        self.assertEqual(list_after_delete.json()["data"]["items"], [])
+        self.assertEqual(list_after_delete.json()["data"]["total"], 0)
 
     def test_admin_user_crud(self):
         """管理员用户增删改查链路测试。"""
@@ -473,7 +479,8 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(list_resp.status_code, 200)
         list_data = list_resp.json()
         self.assertTrue(list_data["success"])
-        self.assertGreaterEqual(len(list_data["data"]), 1)
+        self.assertGreaterEqual(list_data["data"]["total"], 1)
+        self.assertGreaterEqual(len(list_data["data"]["items"]), 1)
 
         get_resp = self.client.get(f"/api/admin/users/{user_id}", headers=headers)
         self.assertEqual(get_resp.status_code, 200)
@@ -525,7 +532,6 @@ class AuthApiTestCase(unittest.TestCase):
                 "api_key": "sk-system-123",
                 "base_url": "https://api.openai.com/v1",
                 "temperature": 0.3,
-                "system_prompt": "你是系统默认申论助手",
                 "is_default": True,
                 "scope": "system",
             },
@@ -537,21 +543,23 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertTrue(create_data["data"]["is_default"])
         self.assertEqual(create_data["data"]["scope"], "system")
 
-        list_resp = self.client.get("/api/admin/ai-configs/system", headers=headers)
+        list_resp = self.client.get("/api/admin/ai-configs/system?page=1&page_size=10", headers=headers)
         self.assertEqual(list_resp.status_code, 200)
         list_data = list_resp.json()
         self.assertTrue(list_data["success"])
-        self.assertGreaterEqual(len(list_data["data"]), 1)
+        self.assertGreaterEqual(list_data["data"]["total"], 1)
+        self.assertEqual(list_data["data"]["page"], 1)
+        self.assertEqual(list_data["data"]["page_size"], 10)
+        self.assertGreaterEqual(len(list_data["data"]["items"]), 1)
 
         update_resp = self.client.put(
             f"/api/admin/ai-configs/system/{config_id}",
             headers=headers,
-            json={"temperature": 0.9, "system_prompt": "更新后的系统提示词", "scope": "system"},
+            json={"temperature": 0.9, "scope": "system"},
         )
         self.assertEqual(update_resp.status_code, 200)
         update_data = update_resp.json()
         self.assertAlmostEqual(update_data["data"]["temperature"], 0.9)
-        self.assertEqual(update_data["data"]["system_prompt"], "更新后的系统提示词")
 
         default_resp = self.client.post(f"/api/admin/ai-configs/system/{config_id}/default", headers=headers)
         self.assertEqual(default_resp.status_code, 200)
@@ -561,8 +569,259 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(delete_resp.status_code, 200)
         self.assertTrue(delete_resp.json()["success"])
 
-        list_after_delete = self.client.get("/api/admin/ai-configs/system", headers=headers)
+        list_after_delete = self.client.get("/api/admin/ai-configs/system?page=1&page_size=10", headers=headers)
         self.assertEqual(list_after_delete.status_code, 200)
+
+    def test_register_send_code_rolls_back_when_email_send_fails(self):
+        """邮件发送失败时不应留下已提交的验证码记录。"""
+
+        username = f"mailfail_{uuid.uuid4().hex[:8]}"
+        email = f"{username}@example.com"
+
+        with patch.object(
+            email_service,
+            "_send_smtp_email",
+            side_effect=HTTPException(status_code=502, detail="邮件发送失败：mock"),
+        ):
+            resp = self.client.post(
+                "/api/auth/register/send-code",
+                json={"username": username, "email": email},
+            )
+
+        self.assertEqual(resp.status_code, 502)
+        self.assertEqual(resp.json()["message"], "邮件发送失败：mock")
+
+        with self.SessionLocal() as db:
+            codes = db.query(EmailVerificationCode).filter(EmailVerificationCode.email == email).all()
+            self.assertEqual(codes, [])
+
+    def test_admin_email_duplicate_validation(self):
+        """管理员邮件配置和模板重复时应返回 400，而不是数据库异常 500。"""
+
+        admin_login = self.client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "Admin123456"},
+        )
+        headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+
+        config_name = f"mail-config-{uuid.uuid4().hex[:8]}"
+        config_payload = {
+            "name": config_name,
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "smtp_username": "noreply@example.com",
+            "smtp_password": "password",
+            "sender_email": "noreply@example.com",
+            "sender_name": "申论 Agent",
+            "use_tls": True,
+            "use_ssl": False,
+            "enabled": True,
+        }
+        first_config = self.client.post("/api/admin/email/configs", headers=headers, json=config_payload)
+        self.assertEqual(first_config.status_code, 201)
+
+        duplicate_config = self.client.post("/api/admin/email/configs", headers=headers, json=config_payload)
+        self.assertEqual(duplicate_config.status_code, 400)
+        self.assertEqual(duplicate_config.json()["message"], "邮件配置名称已存在")
+
+        template_key = f"tpl_{uuid.uuid4().hex[:8]}"
+        template_payload = {
+            "template_key": template_key,
+            "template_name": "重复模板测试",
+            "subject": "主题",
+            "body_text": "正文",
+            "body_html": "<p>正文</p>",
+            "enabled": True,
+        }
+        first_template = self.client.post("/api/admin/email/templates", headers=headers, json=template_payload)
+        self.assertEqual(first_template.status_code, 201)
+
+        duplicate_template = self.client.post("/api/admin/email/templates", headers=headers, json=template_payload)
+        self.assertEqual(duplicate_template.status_code, 400)
+        self.assertEqual(duplicate_template.json()["message"], "邮件模板键已存在")
+
+        config_list = self.client.get("/api/admin/email/configs?page=1&page_size=10", headers=headers)
+        self.assertEqual(config_list.status_code, 200)
+        self.assertGreaterEqual(config_list.json()["data"]["total"], 2)
+        self.assertEqual(config_list.json()["data"]["page"], 1)
+        self.assertEqual(config_list.json()["data"]["page_size"], 10)
+
+        template_list = self.client.get("/api/admin/email/templates?page=1&page_size=10", headers=headers)
+        self.assertEqual(template_list.status_code, 200)
+        self.assertGreaterEqual(template_list.json()["data"]["total"], 3)
+        self.assertEqual(template_list.json()["data"]["page"], 1)
+        self.assertEqual(template_list.json()["data"]["page_size"], 10)
+
+    def test_admin_prompt_management(self):
+        """管理员可以统一管理批改和答疑提示词，普通用户不可访问。"""
+
+        user_resp = self._register_verified_user(
+            f"prompt_user_{uuid.uuid4().hex[:6]}",
+            "test123456",
+            f"prompt_user_{uuid.uuid4().hex[:6]}@example.com",
+        )
+        token = user_resp.json()["data"]["access_token"]
+        user_headers = {"Authorization": f"Bearer {token}"}
+        forbidden = self.client.get("/api/admin/prompts", headers=user_headers)
+        self.assertEqual(forbidden.status_code, 403)
+
+        admin_login = self.client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "Admin123456"},
+        )
+        headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+
+        list_resp = self.client.get("/api/admin/prompts", headers=headers)
+        self.assertEqual(list_resp.status_code, 200)
+        list_data = list_resp.json()["data"]
+        self.assertGreaterEqual(list_data["total"], 3)
+
+        update_resp = self.client.put(
+            "/api/admin/prompts/review_repair",
+            headers=headers,
+            json={"name": "批改修正提示词", "content": "这是新的修正提示词。"},
+        )
+        self.assertEqual(update_resp.status_code, 200)
+        self.assertEqual(update_resp.json()["data"]["template_type"], "review_repair")
+        self.assertEqual(update_resp.json()["data"]["content"], "这是新的修正提示词。")
+
+    def test_admin_system_runtime_config_management(self):
+        """管理员可以统一管理运行时配置，普通用户不可访问。"""
+
+        user_resp = self._register_verified_user(
+            f"runtime_user_{uuid.uuid4().hex[:6]}",
+            "test123456",
+            f"runtime_user_{uuid.uuid4().hex[:6]}@example.com",
+        )
+        token = user_resp.json()["data"]["access_token"]
+        user_headers = {"Authorization": f"Bearer {token}"}
+        forbidden = self.client.get("/api/admin/system-configs", headers=user_headers)
+        self.assertEqual(forbidden.status_code, 403)
+
+        admin_login = self.client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "Admin123456"},
+        )
+        headers = {"Authorization": f"Bearer {admin_login.json()['data']['access_token']}"}
+
+        list_resp = self.client.get("/api/admin/system-configs", headers=headers)
+        self.assertEqual(list_resp.status_code, 200)
+        list_data = list_resp.json()["data"]
+        self.assertGreaterEqual(list_data["total"], 5)
+
+        update_resp = self.client.put(
+            "/api/admin/system-configs/point_compare",
+            headers=headers,
+            json={
+                "name": "要点比对配置",
+                "content_json": {
+                    "exact_match_threshold": 0.9,
+                    "partial_match_threshold": 0.5,
+                },
+            },
+        )
+        self.assertEqual(update_resp.status_code, 200)
+        self.assertEqual(update_resp.json()["data"]["config_key"], "point_compare")
+        self.assertAlmostEqual(update_resp.json()["data"]["content_json"]["exact_match_threshold"], 0.9)
+
+    def test_question_import_allows_partial_success(self):
+        """批量导入遇到单条失败时，应保留其余成功项并返回失败列表。"""
+
+        suffix = uuid.uuid4().hex[:8]
+        username = f"import_{suffix}"
+        email = f"{username}@example.com"
+        self._register_verified_user(username, "test123456", email)
+        login_resp = self.client.post(
+            "/api/auth/login",
+            json={"username": username, "password": "test123456"},
+        )
+        headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+        original_create_question = question_service.create_question
+        call_counter = {"value": 0}
+
+        def flaky_create(db, question):
+            call_counter["value"] += 1
+            if call_counter["value"] == 2:
+                raise RuntimeError("模拟导入失败")
+            return original_create_question(db, question)
+
+        payload = {
+            "items": [
+                {"title": "题目一", "content": "内容一", "question_type": "概括题", "tags": ["A"], "source": "测试"},
+                {"title": "题目二", "content": "内容二", "question_type": "对策题", "tags": ["B"], "source": "测试"},
+                {"title": "题目三", "content": "内容三", "question_type": "分析题", "tags": ["C"], "source": "测试"},
+            ]
+        }
+
+        with patch.object(question_service, "create_question", side_effect=flaky_create):
+            import_resp = self.client.post("/api/questions/import", headers=headers, json=payload)
+
+        self.assertEqual(import_resp.status_code, 201)
+        import_data = import_resp.json()["data"]
+        self.assertEqual(len(import_data["imported"]), 2)
+        self.assertEqual(len(import_data["failed"]), 1)
+        self.assertEqual(import_data["failed"][0]["index"], 1)
+        self.assertIn("模拟导入失败", import_data["failed"][0]["message"])
+
+        list_resp = self.client.get("/api/questions?page=1&page_size=10", headers=headers)
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertEqual(list_resp.json()["data"]["total"], 2)
+
+    def test_question_user_filter_requires_admin(self):
+        """普通用户带 user_id 过滤题库时应明确返回 403。"""
+
+        suffix = uuid.uuid4().hex[:8]
+        username = f"question_filter_{suffix}"
+        email = f"{username}@example.com"
+        self._register_verified_user(username, "test123456", email)
+        login_resp = self.client.post(
+            "/api/auth/login",
+            json={"username": username, "password": "test123456"},
+        )
+        headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+        resp = self.client.get("/api/questions?user_id=1", headers=headers)
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["message"], "仅管理员可按用户筛选题库")
+
+    def test_question_list_supports_sorting(self):
+        """题库列表应支持稳定排序契约。"""
+
+        suffix = uuid.uuid4().hex[:8]
+        username = f"question_sort_{suffix}"
+        email = f"{username}@example.com"
+        self._register_verified_user(username, "test123456", email)
+        login_resp = self.client.post(
+            "/api/auth/login",
+            json={"username": username, "password": "test123456"},
+        )
+        headers = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+
+        self.client.post(
+            "/api/questions",
+            headers=headers,
+            json={"title": "B题目", "content": "内容B", "question_type": "概括题", "tags": ["A"], "source": "测试"},
+        )
+        self.client.post(
+            "/api/questions",
+            headers=headers,
+            json={"title": "A题目", "content": "内容A", "question_type": "概括题", "tags": ["A"], "source": "测试"},
+        )
+
+        sorted_resp = self.client.get(
+            "/api/questions?page=1&page_size=10&sort_by=title&sort_order=asc",
+            headers=headers,
+        )
+        self.assertEqual(sorted_resp.status_code, 200)
+        sorted_data = sorted_resp.json()["data"]
+        items = sorted_data["items"]
+        self.assertGreaterEqual(len(items), 2)
+        self.assertEqual(items[0]["title"], "A题目")
+        self.assertEqual(items[1]["title"], "B题目")
+        self.assertEqual(sorted_data["applied_sort"]["sort_by"], "title")
+        self.assertEqual(sorted_data["applied_sort"]["sort_order"], "asc")
+        self.assertEqual(sorted_data["applied_filters"]["question_type"], None)
 
 
 if __name__ == "__main__":

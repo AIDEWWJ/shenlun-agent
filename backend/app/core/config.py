@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_allow_origin_regex: str = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
     mysql_host: str = "127.0.0.1"
     mysql_port: int = 3306

@@ -1,20 +1,17 @@
 from sqlalchemy import select
 
 from app.db.base import Base
-from app.models import (  # noqa: F401
-    AiConfig,
-    Answer,
-    EmailConfig,
-    EmailTemplate,
-    EmailVerificationCode,
-    PracticeRecord,
-    PromptTemplate,
-    Question,
-    Role,
-    Review,
-    User,
-    UserRole,
-)
+from app.modules.ai_config.models import AiConfig
+from app.modules.auth.models import Role, User, UserRole
+from app.modules.email.models import EmailConfig, EmailTemplate, EmailVerificationCode
+from app.modules.notebook.models import ErrorNotebookEntry, StudyPlan
+from app.modules.practice.models import Answer, PracticeRecord
+from app.modules.question.models import Question, QuestionFavorite
+from app.modules.review.models import Review, ReviewQAMessage, ReviewStep
+from app.modules.prompt.models import PromptTemplate
+from app.modules.prompt.service import ensure_default_prompt_templates
+from app.modules.system_config.models import SystemConfig
+from app.modules.system_config.service import ensure_default_system_configs
 from app.db.session import SessionLocal, engine
 
 
@@ -70,6 +67,9 @@ def init_database() -> None:
 
         if template_changed:
             session.commit()
+
+        ensure_default_prompt_templates(session)
+        ensure_default_system_configs(session)
 
 
 if __name__ == "__main__":
